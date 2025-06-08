@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lexmo Client Persona Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Corporate Clarity -->
+    <!-- Application Structure Plan: The SPA is designed as a persona-centric explorer. The main view is a gallery of client personas. Clicking a persona reveals a detailed dashboard with their profile, qualitative data (goals, pains), interactive charts for comparison, and new AI-powered insight generation buttons. A separate, toggleable section explains the underlying strategy and process. This structure makes personas the primary focus, with AI enhancing their depth and actionability. -->
+    <!-- Visualization & Content Choices: Report Info -> Personas, Decision Criteria, KPIs, Process. Goal -> Compare, Inform, Organize, Enhance with AI. Viz/Presentation -> Interactive Cards (HTML/CSS), Radar Chart (Chart.js), Click-to-expand Diagram (HTML/CSS), Dynamic text areas for AI content. Interaction -> Click persona cards, use dropdowns for chart data, click process steps, click AI buttons to generate content. Justification -> AI integration adds a new layer of dynamic insight, transforming the tool into an intelligent assistant for understanding and engaging clients. Library/Method -> Chart.js for charts, custom JS for interactions and Gemini API calls, Tailwind CSS. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+            color: #334155; /* slate-700 */
+        }
+        .nav-active {
+            color: #0284c7; /* sky-600 */
+            border-bottom-color: #0284c7; /* sky-600 */
+        }
+        .nav-inactive {
+            color: #64748b; /* slate-500 */
+            border-bottom-color: transparent;
+        }
+        .persona-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .persona-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        }
+        .pill {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin: 0.25rem;
+        }
+        .chart-container { /* Updated from attached HTML */
+            position: relative;
+            width: 100%;
+            max-width: 320px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 280px;
+            max-height: 350px;
+        }
+        .process-step-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s ease-in-out;
+        }
+        .process-step-content.open {
+            max-height: 1000px; /* Large enough to not clip content */
+        }
+        .ai-feature-button {
+            background-color: #0284c7; /* sky-600 */
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.375rem; /* rounded-md */
+            font-weight: 500;
+            transition: background-color 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+        }
+        .ai-feature-button:hover {
+            background-color: #0369a1; /* sky-700 */
+        }
+        .ai-feature-button.loading {
+            background-color: #7dd3fc; /* sky-300 */
+            cursor: not-allowed;
+        }
+        .ai-content-area {
+            margin-top: 0.75rem; /* mt-3 */
+            padding: 0.75rem; /* p-3 */
+            background-color: #f1f5f9; /* slate-100 */
+            border: 1px solid #e2e8f0; /* slate-200 */
+            border-radius: 0.375rem; /* rounded-md */
+            min-height: 100px;
+            white-space: pre-wrap; /* To respect newlines from API */
+        }
+        .spinner {
+            width: 1rem;
+            height: 1rem;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+            margin-right: 0.5rem;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div id="app" class="container mx-auto p-4 md:p-8">
+        
+        <header class="mb-8">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+                <h1 class="text-3xl md:text-4xl font-bold text-slate-800">Lexmo<span class="text-sky-600">.</span></h1>
+                <p class="text-xl text-slate-600 mt-2 md:mt-0">Client Persona Explorer</p>
+            </div>
+            <nav class="flex justify-center border-b border-slate-300">
+                <button id="nav-personas" class="nav-button text-lg font-semibold py-3 px-6 border-b-2 nav-active">Explore Personas</button>
+                <button id="nav-process" class="nav-button text-lg font-semibold py-3 px-6 border-b-2 nav-inactive">The Strategic Process</button>
+            </nav>
+        </header>
+
+        <main>
+            <section id="personas-section">
+                <div class="text-center mb-12">
+                    <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Meet Lexmo's Clients</h2>
+                    <p class="max-w-3xl mx-auto text-slate-600">This tool helps us understand the diverse individuals and businesses we serve. Select a persona to explore their unique story, goals, and challenges, enhanced with AI-powered insights to help tailor our services for exceptional results.</p>
+                </div>
+                <div id="persona-gallery" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+                </div>
+                <div id="persona-detail" class="hidden mt-12 bg-white rounded-lg shadow-lg p-6 md:p-8">
+                </div>
+            </section>
+
+            <section id="process-section" class="hidden">
+                <div class="text-center mb-12">
+                     <h2 class="text-2xl md:text-3xl font-bold text-slate-800 mb-2">Our Persona Development Framework</h2>
+                    <p class="max-w-3xl mx-auto text-slate-600">Creating effective client personas is a strategic process. This section outlines our methodology for research, how we implement these insights in Bitrix24, and how we measure success to ensure a truly client-centric approach.</p>
+                </div>
+                
+                <div class="space-y-12">
+                    <div>
+                        <h3 class="text-xl font-semibold text-center text-slate-700 mb-6">Four-Phase Development Process</h3>
+                        <div id="process-steps-container" class="space-y-4 max-w-4xl mx-auto"></div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xl font-semibold text-center text-slate-700 mb-6">Bitrix24 Integration: Making Personas Actionable</h3>
+                        <div id="bitrix-integration-container" class="bg-white p-6 rounded-lg shadow-md overflow-x-auto"></div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xl font-semibold text-center text-slate-700 mb-6">Measuring Success: Key Performance Indicators (KPIs)</h3>
+                        <div id="kpi-container" class="bg-white p-6 rounded-lg shadow-md overflow-x-auto"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="text-center mt-16 text-sm bg-slate-800 text-slate-300 py-8">
+            <p>&copy; 2025 Lexmo.com.au | Strategic Client Engagement Tool</p>
+        </footer>
+
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            const appData = {
+                personas: [
+                    {
+                        id: 'fiona',
+                        name: 'First-Home Fiona',
+                        title: 'The Hopeful Planner',
+                        photo: 'https://placehold.co/100x100/0284c7/FFFFFF?text=FF', /* sky-600 background */
+                        quote: "We just want to build our dream first home without any nasty surprises or stress.",
+                        story: "Fiona, 30, is a marketing coordinator. She and her partner have been saving diligently for their first home in a developing suburb. They are excited but nervous about the complexities and financial commitment of building.",
+                        demographics: "Age: 28-35. Location: Outer Suburbs. Income: $120k-$150k combined. Status: Young couple, planning a family.",
+                        goals: ["Own a modern, functional, affordable home", "Achieve stability and accomplishment", "Utilize first home buyer grants"],
+                        challenges: ["Overwhelmed by the building process", "Fear of hidden costs & budget blowouts", "Understanding technical jargon", "Anxiety about rising property prices"],
+                        motivations: ["Emotional desire for 'our own' home", "Financial incentives", "Securing a property while continuing to save"],
+                        decisionFactors: { Price: 9, Quality: 6, Communication: 8, Speed: 5, Experience: 6 },
+                    },
+                    {
+                        id: 'sam',
+                        name: 'Space-Seeking Sam',
+                        title: 'The Established Extender',
+                        photo: 'https://placehold.co/100x100/94a3b8/FFFFFF?text=SS', /* slate-400 background */
+                        quote: "We need more space for our family, but we love our home and don't want to move.",
+                        story: "Sam, 42, is an IT Project Manager with a growing family. They love their neighborhood but are rapidly outgrowing their home. They're considering a significant extension to enhance their lifestyle and property value.",
+                        demographics: "Age: 38-50. Location: Established Suburbs. Income: $180k-$250k combined. Status: Married with school-aged children.",
+                        goals: ["Create more functional living space", "Increase property value", "Enhance family lifestyle without relocating"],
+                        challenges: ["Disruption of living on-site during construction", "Seamlessly integrating the new and old structures", "Finding a builder specializing in extensions", "Managing budget and avoiding scope creep"],
+                        motivations: ["Avoiding the hassle of moving", "Love for current location (schools, community)", "Adapting home to changing family needs"],
+                        decisionFactors: { Price: 6, Quality: 9, Communication: 8, Speed: 4, Experience: 9 },
+                    },
+                    {
+                        id: 'ian',
+                        name: 'Investor Ian',
+                        title: 'The Savvy Developer',
+                        photo: 'https://placehold.co/100x100/cbd5e1/FFFFFF?text=II', /* slate-300 background */
+                        quote: "I'm looking for a straightforward, profitable investment. Get it built, get it rented.",
+                        story: "Ian, 55, is a retired accountant who owns several investment properties. He sees a granny flat as a smart way to generate additional rental income and maximize the value of his existing assets.",
+                        demographics: "Age: 50-65. Location: Owns investment properties. Income: Financially comfortable. Status: Empty nester.",
+                        goals: ["Maximize rental yield and ROI", "A hassle-free build with quick approvals", "Increase overall property value"],
+                        challenges: ["Navigating council regulations for secondary dwellings", "Ensuring design is appealing to tenants", "Finding a cost-effective builder with granny flat experience", "Managing budget to ensure profitability"],
+                        motivations: ["Diversifying investment portfolio", "Capitalizing on high rental demand", "Lower cost compared to other property investments"],
+                        decisionFactors: { Price: 8, Quality: 7, Communication: 6, Speed: 9, Experience: 8 },
+                    },
+                    {
+                        id: 'penelope',
+                        name: 'Prestige Penelope',
+                        title: 'The Visionary Client',
+                        photo: 'https://placehold.co/100x100/334155/FFFFFF?text=PP', /* slate-700 background */
+                        quote: "Quality and attention to detail are non-negotiable. We're creating a legacy.",
+                        story: "Penelope, 58, is a successful entrepreneur. She and her partner are looking to build their ultimate dream home. Budget is secondary to achieving a unique vision with superior craftsmanship and a premium service experience.",
+                        demographics: "Age: 45-65+. Location: Prestigious Suburbs. Income: High net worth. Status: Couple, empty nesters.",
+                        goals: ["Create a unique, one-of-a-kind home", "Experience the highest level of service and craftsmanship", "Incorporate premium materials and bespoke finishes"],
+                        challenges: ["High expectation of perfection", "Managing a complex project with many stakeholders (architects, designers)", "Ensuring the builder can execute a unique vision", "Long project timelines requiring meticulous planning"],
+                        motivations: ["A home as an expression of success", "Seeking unparalleled quality and luxury", "A highly personalized building experience"],
+                        decisionFactors: { Price: 3, Quality: 10, Communication: 9, Speed: 5, Experience: 10 },
+                    },
+                     {
+                        id: 'dave',
+                        name: 'Developer Dave',
+                        title: 'The Commercial Realist',
+                        photo: 'https://placehold.co/100x100/0ea5e9/FFFFFF?text=DD', /* sky-500 background */
+                        quote: "I need a construction partner who understands commercial realities and can deliver efficiently and profitably.",
+                        story: "Dave, 48, is a property developer focusing on small to medium-scale commercial projects. He is focused on project viability, timelines, and Return on Investment (ROI). He needs a builder who is a reliable business partner.",
+                        demographics: "Age: 40-60. Location: Adelaide Commercial Zones. Income: Business-dependent. Role: Developer.",
+                        goals: ["Complete projects on time and budget", "Achieve target ROI and profitability", "Build a reputation for quality commercial developments"],
+                        challenges: ["Rising construction costs impacting feasibility", "Labor shortages causing delays", "Navigating complex commercial planning codes", "Securing financing and managing risk"],
+                        motivations: ["Capitalizing on growth in specific commercial sectors", "Meeting market demand for modern commercial spaces"],
+                        decisionFactors: { Price: 8, Quality: 8, Communication: 7, Speed: 9, Experience: 9 },
+                    }
+                ],
+                processSteps: [
+                    { title: "Phase 1: Comprehensive Data Collection", content: "We gather information from internal wisdom (sales, project data, staff insights), client voices (interviews, surveys), and market analysis (competitors, industry trends). This creates a rich, data-driven foundation." },
+                    { title: "Phase 2: Strategic Segmentation", content: "We segment our audience into core groups based on project type, demographics, psychographics, goals, and challenges. This allows for more targeted and relevant persona development." },
+                    { title: "Phase 3: Crafting In-Depth Persona Profiles", content: "For each segment, we create a detailed profile including their story, goals, pain points, motivations, and decision factors. This humanizes the data and makes it actionable for our teams." },
+                    { title: "Phase 4: Validation and Iteration", content: "Personas are dynamic. We establish a continuous feedback loop with our client-facing teams and conduct annual reviews to ensure our personas remain accurate, relevant, and effective." }
+                ],
+                bitrixIntegration: [
+                    { attribute: "Assigned Persona Name", fieldType: "Dropdown List", entity: "Contact, Deal", purpose: "To assign the primary persona for segmentation and reporting." },
+                    { attribute: "Key Client Goal", fieldType: "Text (Multiline)", entity: "Contact, Deal", purpose: "Quick reference for the client's main objective." },
+                    { attribute: "Project Type", fieldType: "Dropdown List", entity: "Deal", purpose: "Essential for service-specific resource allocation." },
+                    { attribute: "Cultural Preference", fieldType: "Checkbox List", entity: "Contact, Deal", purpose: "Flags need for specialized design or communication." },
+                    { attribute: "Decision Factors", fieldType: "Custom Fields (Numeric)", entity: "Deal", purpose: "Informs sales strategy and chart generation." }
+                ],
+                kpis: [
+                    { kpi: "Improved Lead Quality", area: "Marketing", description: "Increase in MQLs that align with defined persona characteristics." },
+                    { kpi: "Higher Campaign Conversion", area: "Marketing", description: "Better open/click-through rates from persona-targeted email campaigns." },
+                    { kpi: "Shorter Sales Cycles", area: "Sales", description: "Reduction in time to convert leads whose needs are addressed more efficiently." },
+                    { kpi: "Improved Win Rates", area: "Sales", description: "Higher percentage of proposals won when dealing with persona-aligned leads." },
+                    { kpi: "Higher Client Satisfaction", area: "Client Service", description: "Improved CSAT/NPS scores from post-project surveys." },
+                    { kpi: "Growth in CALD Client Base", area: "Strategic", description: "Increase in clients from culturally diverse backgrounds, validating our multicultural focus." }
+                ]
+            };
+
+            const navPersonas = document.getElementById('nav-personas');
+            const navProcess = document.getElementById('nav-process');
+            const personasSection = document.getElementById('personas-section');
+            const processSection = document.getElementById('process-section');
+            const personaGallery = document.getElementById('persona-gallery');
+            const personaDetail = document.getElementById('persona-detail');
+            const processStepsContainer = document.getElementById('process-steps-container');
+            const bitrixContainer = document.getElementById('bitrix-integration-container');
+            const kpiContainer = document.getElementById('kpi-container');
+
+            let radarChartInstance = null;
+
+            const navigate = (activeSection) => {
+                if (activeSection === 'personas') {
+                    personasSection.classList.remove('hidden');
+                    processSection.classList.add('hidden');
+                    navPersonas.classList.add('nav-active');
+                    navPersonas.classList.remove('nav-inactive');
+                    navProcess.classList.add('nav-inactive');
+                    navProcess.classList.remove('nav-active');
+                } else {
+                    personasSection.classList.add('hidden');
+                    processSection.classList.remove('hidden');
+                    navPersonas.classList.add('nav-inactive');
+                    navPersonas.classList.remove('nav-active');
+                    navProcess.classList.add('nav-active');
+                    navProcess.classList.remove('nav-inactive');
+                }
+            };
+
+            navPersonas.addEventListener('click', () => navigate('personas'));
+            navProcess.addEventListener('click', () => navigate('process'));
+
+            const renderPersonaGallery = () => {
+                personaGallery.innerHTML = appData.personas.map(p => `
+                    <div class="persona-card bg-white rounded-lg shadow-md p-6 text-center cursor-pointer" data-id="${p.id}">
+                        <img src="${p.photo}" alt="${p.name}" class="w-24 h-24 rounded-full mx-auto mb-4 border-4 border-slate-200" onerror="this.src='https://placehold.co/100x100/cccccc/FFFFFF?text=Error'; this.onerror=null;">
+                        <h3 class="text-xl font-bold text-slate-800">${p.name}</h3>
+                        <p class="text-sky-600 font-medium">${p.title}</p>
+                    </div>
+                `).join('');
+                
+                document.querySelectorAll('.persona-card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        renderPersonaDetail(card.dataset.id);
+                        personaDetail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                });
+            };
+            
+            const renderPill = (text, type) => {
+                const colors = {
+                    goal: 'bg-slate-100 text-slate-800', /* Updated */
+                    challenge: 'bg-amber-100 text-amber-800', /* Kept amber for distinction */
+                    motivation: 'bg-sky-100 text-sky-800' /* Updated */
+                };
+                return `<span class="pill ${colors[type]}">${text}</span>`;
+            };
+
+            const renderPersonaDetail = (personaId) => {
+                const persona = appData.personas.find(p => p.id === personaId);
+                if (!persona) return;
+                
+                personaDetail.innerHTML = `
+                    <div class="flex justify-end mb-4">
+                        <button id="close-detail" class="text-slate-500 hover:text-slate-800 transition">
+                            <svg class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-8">
+                        <div class="md:col-span-4 text-center">
+                            <img src="${persona.photo}" alt="${persona.name}" class="w-32 h-32 rounded-full mx-auto mb-4 border-4 border-sky-200" onerror="this.src='https://placehold.co/100x100/cccccc/FFFFFF?text=Error'; this.onerror=null;">
+                            <h2 class="text-3xl font-bold text-slate-800">${persona.name}</h2>
+                            <p class="text-xl text-sky-600 font-medium mb-4">${persona.title}</p>
+                            <p class="text-slate-600 italic">"${persona.quote}"</p>
+                            <div class="text-left mt-6 bg-slate-100 p-4 rounded-lg">
+                                <h4 class="font-semibold text-slate-700 mb-2">Background</h4>
+                                <p class="text-sm text-slate-600">${persona.story}</p>
+                                <h4 class="font-semibold text-slate-700 mt-4 mb-2">Demographics</h4>
+                                <p class="text-sm text-slate-600">${persona.demographics}</p>
+                            </div>
+                        </div>
+
+                        <div class="md:col-span-8">
+                            <div>
+                                <h4 class="font-semibold text-slate-700 mb-2">Primary Goals</h4>
+                                <div class="flex flex-wrap">${persona.goals.map(g => renderPill(g, 'goal')).join('')}</div>
+                            </div>
+                            <div class="mt-6">
+                                <h4 class="font-semibold text-slate-700 mb-2">Key Challenges & Pain Points</h4>
+                                <div class="flex flex-wrap">${persona.challenges.map(c => renderPill(c, 'challenge')).join('')}</div>
+                            </div>
+                            <div class="mt-6">
+                                <h4 class="font-semibold text-slate-700 mb-2">Buying Motivations</h4>
+                                <div class="flex flex-wrap">${persona.motivations.map(m => renderPill(m, 'motivation')).join('')}</div>
+                            </div>
+
+                            <div class="mt-8">
+                                <h3 class="text-xl font-semibold text-slate-700 mb-4 text-center">Comparing Decision Factors</h3>
+                                <div class="chart-container">
+                                    <canvas id="radarChart"></canvas>
+                                </div>
+                                <div class="text-center mt-2">
+                                    <label for="compare-persona-select" class="text-sm text-slate-600 mr-2">Compare with:</label>
+                                    <select id="compare-persona-select" class="p-2 rounded-md border border-slate-300 bg-white">
+                                        <option value="">None</option>
+                                        ${appData.personas.filter(p => p.id !== personaId).map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="mt-10 pt-6 border-t border-slate-200">
+                                <h3 class="text-xl font-semibold text-slate-700 mb-4">✨ AI-Powered Insights</h3>
+                                <div class="space-y-6">
+                                    <div>
+                                        <button id="ai-elaborate-story" class="ai-feature-button">
+                                            <span>Elaborate on Story & Challenges</span>
+                                        </button>
+                                        <div id="ai-story-content" class="ai-content-area hidden"></div>
+                                    </div>
+                                    <div>
+                                        <button id="ai-communication-tips" class="ai-feature-button">
+                                            <span>Suggest Communication Tips</span>
+                                        </button>
+                                        <div id="ai-communication-content" class="ai-content-area hidden"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                personaDetail.classList.remove('hidden');
+                
+                document.getElementById('close-detail').addEventListener('click', () => {
+                     personaDetail.classList.add('hidden');
+                     personaDetail.innerHTML = '';
+                });
+
+                const radarCtx = document.getElementById('radarChart').getContext('2d');
+                createRadarChart(radarCtx, persona);
+                
+                document.getElementById('compare-persona-select').addEventListener('change', (e) => {
+                    const comparePersonaId = e.target.value;
+                    createRadarChart(radarCtx, persona, comparePersonaId);
+                });
+
+                document.getElementById('ai-elaborate-story').addEventListener('click', (e) => {
+                    handleGeminiRequest(
+                        e.currentTarget,
+                        document.getElementById('ai-story-content'),
+                        `Expand on the story and challenges for a client persona like ${persona.name}. 
+                        Their title is "${persona.title}". 
+                        Their quote is: "${persona.quote}".
+                        Their current story is: "${persona.story}".
+                        Their main goals are: ${persona.goals.join(', ')}.
+                        Their key challenges are: ${persona.challenges.join(', ')}.
+                        Focus on providing a richer narrative and deeper insight into their potential struggles and aspirations related to building or property development projects with Lexmo. Consider Lexmo's services: planning and development approvals, design and build, build only, project management for residential (including luxury, extensions, granny flats, townhouses) and commercial builds.
+                        Keep the tone empathetic and insightful for internal Lexmo team members.`
+                    );
+                });
+
+                document.getElementById('ai-communication-tips').addEventListener('click', (e) => {
+                     handleGeminiRequest(
+                        e.currentTarget,
+                        document.getElementById('ai-communication-content'),
+                        `Provide communication tips for Lexmo team members when interacting with a client persona like ${persona.name}.
+                        Their title is "${persona.title}".
+                        Their quote is: "${persona.quote}".
+                        Key characteristics: Story - "${persona.story}", Goals - ${persona.goals.join(', ')}, Challenges - ${persona.challenges.join(', ')}, Motivations - ${persona.motivations.join(', ')}.
+                        Lexmo offers: planning and development approvals, design and build, build only, project management for residential and commercial projects. They also focus on multicultural benefits.
+                        Suggest:
+                        1. Appropriate tone and style.
+                        2. Key messages to emphasize.
+                        3. Example opening questions or conversation starters.
+                        4. How to address their specific challenges and motivations.
+                        Format the output clearly for easy reading by Lexmo staff.`
+                    );
+                });
+            };
+
+            const setButtonLoadingState = (button, isLoading) => {
+                const textSpan = button.querySelector('span');
+                if (isLoading) {
+                    button.classList.add('loading');
+                    button.disabled = true;
+                    if (textSpan) textSpan.insertAdjacentHTML('beforebegin', '<div class="spinner"></div>');
+                } else {
+                    button.classList.remove('loading');
+                    button.disabled = false;
+                    const spinner = button.querySelector('.spinner');
+                    if (spinner) spinner.remove();
+                }
+            };
+            
+            async function handleGeminiRequest(button, contentArea, prompt) {
+                setButtonLoadingState(button, true);
+                contentArea.classList.remove('hidden');
+                contentArea.textContent = '✨ Generating insights with AI... please wait.';
+
+                try {
+                    let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                    const payload = { contents: chatHistory };
+                    const apiKey = ""; 
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                    
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API request failed with status ${response.status}: ${await response.text()}`);
+                    }
+
+                    const result = await response.json();
+
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        const text = result.candidates[0].content.parts[0].text;
+                        contentArea.textContent = text;
+                    } else {
+                        contentArea.textContent = 'Could not retrieve insights. The AI response was empty or malformed.';
+                         console.error("Unexpected API response structure:", result);
+                    }
+                } catch (error) {
+                    console.error('Error fetching from Gemini API:', error);
+                    contentArea.textContent = `Sorry, something went wrong while fetching AI insights. Please try again. Error: ${error.message}`;
+                } finally {
+                    setButtonLoadingState(button, false);
+                }
+            }
+            
+            const createRadarChart = (ctx, mainPersona, comparePersonaId) => {
+                if (radarChartInstance) {
+                    radarChartInstance.destroy();
+                }
+
+                const labels = Object.keys(mainPersona.decisionFactors);
+                const mainData = Object.values(mainPersona.decisionFactors);
+
+                const datasets = [{
+                    label: mainPersona.name,
+                    data: mainData,
+                    backgroundColor: 'rgba(2, 132, 199, 0.2)',  /* sky-600 */
+                    borderColor: 'rgba(2, 132, 199, 1)',      /* sky-600 */
+                    pointBackgroundColor: 'rgba(2, 132, 199, 1)',/* sky-600 */
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: 'rgba(2, 132, 199, 1)', /* sky-600 */
+                    borderWidth: 2
+                }];
+
+                if (comparePersonaId) {
+                    const comparePersona = appData.personas.find(p => p.id === comparePersonaId);
+                    if (comparePersona) {
+                        datasets.push({
+                            label: comparePersona.name,
+                            data: Object.values(comparePersona.decisionFactors),
+                            backgroundColor: 'rgba(100, 116, 139, 0.2)', /* slate-500 */
+                            borderColor: 'rgba(100, 116, 139, 1)',      /* slate-500 */
+                            pointBackgroundColor: 'rgba(100, 116, 139, 1)',/* slate-500 */
+                            pointBorderColor: '#fff',
+                            pointHoverBackgroundColor: '#fff',
+                            pointHoverBorderColor: 'rgba(100, 116, 139, 1)', /* slate-500 */
+                            borderWidth: 2
+                        });
+                    }
+                }
+
+                radarChartInstance = new Chart(ctx, {
+                    type: 'radar',
+                    data: { labels, datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            r: {
+                                angleLines: { display: true },
+                                suggestedMin: 0,
+                                suggestedMax: 10,
+                                pointLabels: { 
+                                    font: { size: 11 },
+                                    padding: 5,
+                                    color: '#334155', // slate-700
+                                    callback: function(label) {
+                                        if (label.length > 15) {
+                                           return label.substring(0,15) + '...';
+                                        }
+                                        return label;
+                                    } 
+                                },
+                                grid: { color: '#e2e8f0' }, /* slate-200 */
+                                ticks: {
+                                    backdropColor: 'rgba(248, 250, 252, 0.75)', /* slate-50 with alpha */
+                                    color: '#64748b', /* slate-500 */
+                                    stepSize: 2
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    font: { size: 12 },
+                                    color: '#334155' // slate-700
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        if (context.parsed.r !== null) {
+                                            label += context.parsed.r;
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            };
+
+            const renderProcessSteps = () => {
+                processStepsContainer.innerHTML = appData.processSteps.map((step, index) => `
+                    <div class="bg-white rounded-lg shadow-sm border border-slate-200">
+                        <button class="process-step-header w-full text-left p-4 flex justify-between items-center focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded-lg" data-index="${index}">
+                            <span class="font-semibold text-slate-700">${step.title}</span>
+                            <svg class="w-6 h-6 transition-transform transform text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                        <div class="process-step-content px-4 pb-4 text-slate-600">
+                            ${step.content}
+                        </div>
+                    </div>
+                `).join('');
+
+                processStepsContainer.addEventListener('click', (e) => {
+                    const header = e.target.closest('.process-step-header');
+                    if(header) {
+                        const content = header.nextElementSibling;
+                        const icon = header.querySelector('svg');
+                        const allContents = processStepsContainer.querySelectorAll('.process-step-content');
+                        const allIcons = processStepsContainer.querySelectorAll('.process-step-header svg');
+                        
+                        const isOpen = content.classList.contains('open');
+
+                        allContents.forEach(c => { if (c !== content) c.classList.remove('open'); });
+                        allIcons.forEach(i => { if(i !== icon) i.classList.remove('rotate-180'); });
+
+                        if (!isOpen) {
+                            content.classList.add('open');
+                            icon.classList.add('rotate-180');
+                        } else {
+                            content.classList.remove('open');
+                            icon.classList.remove('rotate-180');
+                        }
+                    }
+                });
+            };
+
+            const renderBitrixTable = () => {
+                bitrixContainer.innerHTML = `
+                    <table class="w-full text-left">
+                        <thead class="bg-slate-100">
+                            <tr>
+                                <th class="p-3 font-semibold text-sm text-slate-600 uppercase tracking-wider">Persona Attribute</th>
+                                <th class="p-3 font-semibold text-sm text-slate-600 uppercase tracking-wider">Bitrix24 Field Type</th>
+                                <th class="p-3 font-semibold text-sm text-slate-600 uppercase tracking-wider hidden md:table-cell">Entity</th>
+                                <th class="p-3 font-semibold text-sm text-slate-600 uppercase tracking-wider hidden lg:table-cell">Purpose</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-200">
+                            ${appData.bitrixIntegration.map(item => `
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="p-3 text-slate-800 font-medium">${item.attribute}</td>
+                                    <td class="p-3 text-slate-600">${item.fieldType}</td>
+                                    <td class="p-3 text-slate-600 hidden md:table-cell">${item.entity}</td>
+                                    <td class="p-3 text-slate-600 text-sm hidden lg:table-cell">${item.purpose}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            };
+
+            const renderKpiTable = () => {
+                kpiContainer.innerHTML = `
+                     <table class="w-full text-left">
+                        <thead class="bg-slate-100">
+                            <tr>
+                                <th class="p-3 font-semibold text-sm text-slate-600 uppercase tracking-wider">Key Performance Indicator (KPI)</th>
+                                <th class="p-3 font-semibold text-sm text-slate-600 uppercase tracking-wider">Area</th>
+                                <th class="p-3 font-semibold text-sm text-slate-600 uppercase tracking-wider hidden md:table-cell">Description</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-200">
+                             ${appData.kpis.map(item => `
+                                <tr class="hover:bg-slate-50 transition-colors">
+                                    <td class="p-3 text-slate-800 font-medium">${item.kpi}</td>
+                                    <td class="p-3 text-slate-600">${item.area}</td>
+                                    <td class="p-3 text-slate-600 text-sm hidden md:table-cell">${item.description}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            };
+
+            const init = () => {
+                renderPersonaGallery();
+                renderProcessSteps();
+                renderBitrixTable();
+                renderKpiTable();
+                navigate('personas');
+            };
+
+            init();
+        });
+    </script>
+</body>
+</html>
